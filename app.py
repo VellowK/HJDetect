@@ -637,7 +637,11 @@ st.set_page_config(
 inject_css()
 
 # 顶部标题栏 + 真实服务状态灯
-_health = probe_service_health()
+# 应用启动（本次浏览器会话首次加载）时强制真实探测一次，之后按 20 分钟 TTL 复用
+_first_load = "_health_bootstrapped" not in st.session_state
+_health = probe_service_health(force=_first_load)
+if _first_load:
+    st.session_state["_health_bootstrapped"] = True
 render_header(_health)
 
 
