@@ -654,9 +654,9 @@ print_summary() {
 # ----------------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------------
-main() {
+do_install() {
     printf '%s==============================================================\n' "$C_BOLD$C_BLUE"
-    printf '   智鉴黄精 AI 品质检测系统 - Linux 一键安装\n'
+    printf '   智鉴黄精 AI 品质检测系统 - 安装\n'
     printf '==============================================================%s\n' "$C_RESET"
 
     check_system
@@ -672,6 +672,179 @@ main() {
         warn "健康检查未通过, 可修复配置后运行 bash scripts/check.sh 排查。"
     fi
     print_summary
+}
+
+do_uninstall() {
+    printf '%s==============================================================\n' "$C_BOLD$C_RED"
+    printf '   智鉴黄精 AI 品质检测系统 - 卸载\n'
+    printf '==============================================================%s\n' "$C_RESET"
+    
+    local install_dir="${HJ_INSTALL_DIR:-$HOME/hjdetect}"
+    
+    if [ ! -d "$install_dir" ]; then
+        warn "未找到安装目录: $install_dir"
+        return 0
+    fi
+    
+    info "将要卸载: $install_dir"
+    
+    if [ "${HJ_NONINTERACTIVE:-0}" != "1" ]; then
+        printf "确认卸载吗？这将删除所有数据 [y/N]: "
+        read -r confirm < /dev/tty || confirm="n"
+        if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+            info "取消卸载。"
+            return 0
+        fi
+    fi
+    
+    # 停止并删除systemd服务
+    if [ -f /etc/systemd/system/huangjing.service ]; then
+        info "停止并移除 systemd 服务..."
+        as_root systemctl stop huangjing 2>/dev/null || true
+        as_root systemctl disable huangjing 2>/dev/null || true
+        as_root rm -f /etc/systemd/system/huangjing.service
+        as_root systemctl daemon-reload
+        ok "systemd 服务已移除"
+    fi
+    
+    # 删除安装目录
+    info "删除安装目录: $install_dir"
+    rm -rf "$install_dir"
+    ok "卸载完成"
+}
+
+do_update() {
+    printf '%s==============================================================\n' "$C_BOLD$C_YELLOW"
+    printf '   智鉴黄精 AI 品质检测系统 - 更新\n'
+    printf '==============================================================%s\n' "$C_RESET"
+    
+    local install_dir="${HJ_INSTALL_DIR:-$HOME/hjdetect}"
+    
+    if [ ! -d "$install_dir" ]; then
+        die "未找到安装目录: $install_dir，请先执行安装。"
+    fi
+    
+    cd "$install_dir"
+    
+    if [ ! -d .git ]; then
+        die "$install_dir 不是 git 仓库，无法更新。"
+    fi
+    
+    info "拉取最新代码..."
+    git fetch origin
+    git reset --hard origin/main
+    ok "代码已更新到最新版本"
+    
+    info "更新依赖..."
+    ./venv/bin/python -m pip install --upgrade pip -q
+    ./venv/bin/python -m pip install -r requirements.txt -q
+    ok "依赖已更新"
+    
+    # 重启服务
+    if systemctl is-active --quiet huangjing 2>/dev/null; then
+        info "重启服务..."
+        as_root systemctl restart huangjing
+        ok "服务已重启"
+    else
+        info "服务未运行，跳过重启。"
+    fi
+    
+    ok "更新完成！"
+}
+
+do_check() {
+    printf '%s==============================================================\n' "$C_BOLD$C_GREEN"
+    printf '   智鉴黄精 AI 品质检测系统 - 环境检查\n'
+    printf '==============================================================%s\n' "$C_RESET"
+    
+    local install_dir="${HJ_INSTALL_DIR:-$HOME/hjdetect}"
+    
+    if [ ! -d "$install_dir" ]; then
+        die "未找到安装目录: $install_dir，请先执行安装。"
+    fi
+    
+    if [ -f "$install_dir/scripts/check.sh" ]; then
+        bash "$install_dir/scripts/check.sh"
+    else
+        die "未找到检查脚本: $install_dir/scripts/check.sh"
+    fi
+}
+
+show_menu() {
+    printf '\n%s==============================================================\n' "$C_BOLD$C_BLUE"
+    printf '   智鉴黄精 AI 品质检测系统 - 管理脚本\n'
+    printf '==============================================================%s\n' "$C_RESET"
+    printf '\n'
+    printf '  1) 安装系统\n'
+    printf '  2) 卸载系统\n'
+    printf '  3) 更新系统\n'
+    printf '  4) 环境检查\n'
+    printf '  5) 退出\n'
+    printf '\n'
+}
+
+main() {
+    # 如果是 curl | bash 方式或非交互模式，直接安装
+    if [ ! -t 0 ] || [ "${HJ_NONINTERACTIVE:-0}" = "1" ]; then
+        do_install
+        return
+    fi
+    
+    # 如果有参数，根据参数执行
+    if [ $# -gt 0 ]; then
+        case "$1" in
+            install|--install|-i)
+                do_install
+                ;;
+            uninstall|--uninstall|-u)
+                do_uninstall
+                ;;
+            update|--update|-U)
+                do_update
+                ;;
+            check|--check|-c)
+                do_check
+                ;;
+            *)
+                echo "未知选项: $1"
+                echo "用法: $0 [install|uninstall|update|check]"
+                exit 1
+                ;;
+        esac
+        return
+    fi
+    
+    # 交互式菜单
+    while true; do
+        show_menu
+        printf "请选择操作 [1-5]: "
+        read -r choice < /dev/tty
+        
+        case "$choice" in
+            1)
+                do_install
+                break
+                ;;
+            2)
+                do_uninstall
+                break
+                ;;
+            3)
+                do_update
+                break
+                ;;
+            4)
+                do_check
+                ;;
+            5|q|Q)
+                info "退出。"
+                exit 0
+                ;;
+            *)
+                warn "无效选择，请输入 1-5"
+                ;;
+        esac
+    done
 }
 
 main "$@"
