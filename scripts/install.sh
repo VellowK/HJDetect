@@ -770,6 +770,73 @@ do_check() {
     fi
 }
 
+do_version() {
+    printf '%s==============================================================\n' "$C_BOLD$C_BLUE"
+    printf '   智鉴黄精 AI 品质检测系统 - 版本信息\n'
+    printf '==============================================================%s\n' "$C_RESET"
+    
+    local install_dir="${HJ_INSTALL_DIR:-$HOME/hjdetect}"
+    
+    # 检查是否已安装
+    if [ ! -d "$install_dir" ]; then
+        warn "未找到安装目录: $install_dir"
+        info "系统未安装"
+        return 0
+    fi
+    
+    printf '\n'
+    
+    # 读取本地版本
+    if [ -f "$install_dir/VERSION" ]; then
+        local_version=$(cat "$install_dir/VERSION" 2>/dev/null | tr -d '[:space:]')
+        printf "  本地版本 : %s%s%s\n" "$C_GREEN" "$local_version" "$C_RESET"
+    else
+        printf "  本地版本 : %s未知%s\n" "$C_YELLOW" "$C_RESET"
+        local_version="unknown"
+    fi
+    
+    # 读取Git信息
+    if [ -d "$install_dir/.git" ]; then
+        cd "$install_dir"
+        local git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        local git_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        local git_date=$(git log -1 --format=%cd --date=short 2>/dev/null || echo "unknown")
+        
+        printf "  Git 分支 : %s\n" "$git_branch"
+        printf "  Git 提交 : %s\n" "$git_commit"
+        printf "  提交日期 : %s\n" "$git_date"
+    fi
+    
+    # 检查远程最新版本
+    printf '\n'
+    info "检查远程最新版本..."
+    
+    if command -v curl >/dev/null 2>&1; then
+        remote_version=$(curl -fsSL --connect-timeout 5 \
+            "https://raw.githubusercontent.com/VellowK/HJDetect/main/VERSION" 2>/dev/null | tr -d '[:space:]')
+        
+        if [ -n "$remote_version" ]; then
+            printf "  远程版本 : %s%s%s\n" "$C_BLUE" "$remote_version" "$C_RESET"
+            
+            # 比较版本
+            if [ "$local_version" = "$remote_version" ]; then
+                ok "已是最新版本"
+            elif [ "$local_version" = "unknown" ]; then
+                warn "无法确定本地版本"
+            else
+                warn "发现新版本：$remote_version (当前: $local_version)"
+                info "运行 '更新系统' 升级到最新版本"
+            fi
+        else
+            warn "无法获取远程版本信息（网络问题或仓库不可达）"
+        fi
+    else
+        warn "未安装 curl，无法检查远程版本"
+    fi
+    
+    printf '\n'
+}
+
 show_menu() {
     printf '\n%s==============================================================\n' "$C_BOLD$C_BLUE"
     printf '   智鉴黄精 AI 品质检测系统 - 管理脚本\n'
@@ -777,6 +844,12 @@ show_menu() {
     printf '\n'
     printf '  1) 安装系统\n'
     printf '  2) 卸载系统\n'
+    printf '  3) 更新系统\n'
+    printf '  4) 环境检查\n'
+    printf '  5) 版本信息\n'
+    printf '  6) 退出\n'
+    printf '\n'
+}
     printf '  3) 更新系统\n'
     printf '  4) 环境检查\n'
     printf '  5) 退出\n'
@@ -805,9 +878,12 @@ main() {
             check|--check|-c)
                 do_check
                 ;;
+            version|--version|-v)
+                do_version
+                ;;
             *)
                 echo "未知选项: $1"
-                echo "用法: $0 [install|uninstall|update|check]"
+                echo "用法: $0 [install|uninstall|update|check|version]"
                 exit 1
                 ;;
         esac
@@ -817,7 +893,7 @@ main() {
     # 交互式菜单
     while true; do
         show_menu
-        printf "请选择操作 [1-5]: "
+        printf "请选择操作 [1-6]: "
         read -r choice < /dev/tty
         
         case "$choice" in
@@ -836,12 +912,15 @@ main() {
             4)
                 do_check
                 ;;
-            5|q|Q)
+            5)
+                do_version
+                ;;
+            6|q|Q)
                 info "退出。"
                 exit 0
                 ;;
             *)
-                warn "无效选择，请输入 1-5"
+                warn "无效选择，请输入 1-6"
                 ;;
         esac
     done
