@@ -408,7 +408,9 @@ configure_app() {
         ok "检测到现有 .env, 已自动备份 (未询问到的配置保持不变)。"
     fi
 
-    # --- API Key (隐藏输入) ---
+    # --- 配置顺序：API Key → Base URL → 模型 → 运行模式 → 监听地址 → 端口 ---
+    
+    # 1. API Key (隐藏输入)
     local api_key_value="${ARK_API_KEY:-}"
     if [ -z "$api_key_value" ]; then
         if [ "$existing_key" = "yes" ]; then
@@ -424,16 +426,24 @@ configure_app() {
         fi
     fi
 
-    # --- API / Web 配置 ---
+    # 2. API Base URL
     local input_url input_model input_mode input_host input_port
     input_url="${ARK_BASE_URL:-}"
     [ -z "$input_url" ] && input_url="$(ask "ARK API Endpoint (默认: $DEFAULT_BASE_URL)" "${existing_url:-$DEFAULT_BASE_URL}")"
+    
+    # 3. 模型名称
     input_model="${ARK_MODEL:-}"
     [ -z "$input_model" ] && input_model="$(ask "模型名称 (默认: $DEFAULT_MODEL)" "${existing_model:-$DEFAULT_MODEL}")"
+    
+    # 4. 运行模式
     input_mode="${APP_MODE:-}"
     [ -z "$input_mode" ] && input_mode="$(ask "运行模式 online/demo (默认: online)" "${existing_mode:-online}")"
+    
+    # 5. 监听地址
     input_host="${HOST:-}"
     [ -z "$input_host" ] && input_host="$(ask "监听地址 (默认: $DEFAULT_HOST, 0.0.0.0 为全网可访问)" "${existing_host:-$DEFAULT_HOST}")"
+    
+    # 6. 监听端口
     input_port="${PORT:-}"
     [ -z "$input_port" ] && input_port="$(ask "监听端口 (默认: $DEFAULT_PORT)" "${existing_port:-$DEFAULT_PORT}")"
 
@@ -507,15 +517,15 @@ configure_https() {
         return 0
     fi
 
-    if [ -z "$HJ_DOMAIN" ]; then
+    if [ -z "${HJ_DOMAIN:-}" ]; then
         HJ_DOMAIN="$(ask "域名 (例如 detect.example.com, 留空跳过 HTTPS)" "$existing_domain")"
     fi
-    if [ -z "$HJ_DOMAIN" ]; then
+    if [ -z "${HJ_DOMAIN:-}" ]; then
         warn "未提供域名, 跳过 HTTPS 配置。"
         upsert_env_line .env ENABLE_HTTPS "'no'"
         return 0
     fi
-    if [ -z "$HJ_EMAIL" ]; then
+    if [ -z "${HJ_EMAIL:-}" ]; then
         HJ_EMAIL="$(ask "证书邮箱 (Let's Encrypt 通知, 留空使用域名邮箱)" "$existing_email")"
     fi
 
