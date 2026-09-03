@@ -306,11 +306,6 @@ def run_detection(image_bytes: bytes, filename: str, log) -> dict:
 # ---------------------------------------------------------------------------
 
 try:
-    from streamlit_paste_button import paste_image_button as _paste_button
-except Exception:  # pragma: no cover
-    _paste_button = None
-
-try:
     from streamlit_local_storage import LocalStorage as _LocalStorage
 except Exception:  # pragma: no cover
     _LocalStorage = None
@@ -420,25 +415,6 @@ def inject_css() -> None:
         [data-testid="stFileUploader"] > label {{ display: none !important; }}
         [data-testid="stFileUploader"] > section {{ margin-top: 0 !important; }}
 
-        /* 剪贴板上传长条：让粘贴组件铺满整行成为一条，并统一主题色 */
-        .hj-paste-wrap iframe {{ width: 100% !important; min-width: 100% !important; }}
-        /* 覆盖粘贴组件在暗色模式下的白色底色（组件按钮渲染在其容器内） */
-        .hj-paste-wrap [data-testid="stButton"] button,
-        .hj-paste-wrap button {{
-            width: 100% !important;
-            background: #0f766e !important;
-            color: #ffffff !important;
-            border: 1px solid #0f766e !important;
-        }}
-        .hj-paste-wrap [data-testid="stButton"] button:hover,
-        .hj-paste-wrap button:hover {{
-            background: #0d5f5a !important;
-            border-color: #0d5f5a !important;
-        }}
-        .hj-paste-hint {{
-            display: flex; align-items: center; gap: 6px; justify-content: center;
-            font-size: 12px; color: #64748b; margin: 4px 0 2px;
-        }}
 
         /* 日志面板 */
         .hj-log {{
@@ -751,33 +727,6 @@ with left:
                 st.session_state["current_image"] = data
                 st.session_state["current_name"] = uploaded.name
                 st.rerun()
-
-    # 剪贴板上传长条（整行铺满；组件缺失时降级为提示条）
-    if _paste_button is not None:
-        st.markdown('<div class="hj-paste-wrap">', unsafe_allow_html=True)
-        pasted = _paste_button(
-            label="从剪贴板上传图片",
-            text_color="#ffffff",
-            background_color="#0f766e",
-            hover_background_color="#0d5f5a",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-        if getattr(pasted, "image_data", None) is not None:
-            try:
-                buf = io.BytesIO()
-                pasted.image_data.save(buf, format="PNG")
-                st.session_state["current_image"] = buf.getvalue()
-                st.session_state["current_name"] = "pasted.png"
-                st.rerun()
-            except Exception as exc:
-                logger.warning("粘贴图片处理失败: %r", exc)
-                st.warning("剪贴板图片无法读取，请改用拖拽或选择文件。")
-    else:
-        st.markdown(
-            '<div class="hj-paste-hint"><i class="ri-clipboard-line"></i>'
-            "安装 streamlit-paste-button 组件后可启用剪贴板上传</div>",
-            unsafe_allow_html=True,
-        )
 
     # 三个操作按钮（Remix Icon，无 emoji）
     b1, b2, b3 = st.columns(3)

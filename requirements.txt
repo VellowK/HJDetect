@@ -4,5 +4,4 @@ requests>=2.32.0
 Pillow>=10.3.0
 openai>=1.0.0
 # 可选增强组件（缺失时应用自动降级，不影响核心检测流程）
-streamlit-paste-button>=0.1.2
 streamlit-local-storage>=0.0.20
