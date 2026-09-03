@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+gitinfo.txt
 
 # Python
 __pycache__/

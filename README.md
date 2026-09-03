@@ -20,8 +20,8 @@
 ### 1. 获取代码
 
 ```bash
-git clone <REPO_URL>
-cd huangjing-quality
+git clone https://github.com/VellowK/HJDetect.git
+cd HJDetect
 ```
 
 ### 2. 创建虚拟环境并安装依赖
