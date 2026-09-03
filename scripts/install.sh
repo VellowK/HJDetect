@@ -285,7 +285,28 @@ setup_venv() {
     if [ -x "venv/bin/python" ]; then
         ok "虚拟环境已存在: $INSTALL_DIR/venv"
     else
-        "$PYTHON_BIN" -m venv venv || die "创建虚拟环境失败 (Debian/Ubuntu 需安装 python3-venv)。"
+        # 尝试创建虚拟环境
+        if ! "$PYTHON_BIN" -m venv venv 2>/dev/null; then
+            warn "venv 模块不可用，尝试自动安装 python3-venv..."
+            
+            # 检测系统类型并安装 python3-venv
+            if command -v apt-get >/dev/null 2>&1; then
+                info "检测到 Debian/Ubuntu 系统，安装 python3-venv..."
+                as_root apt-get update -qq
+                as_root apt-get install -y python3-venv
+            elif command -v yum >/dev/null 2>&1; then
+                info "检测到 CentOS/RHEL 系统，安装 python3-venv..."
+                as_root yum install -y python3-venv
+            elif command -v dnf >/dev/null 2>&1; then
+                info "检测到 Fedora 系统，安装 python3-venv..."
+                as_root dnf install -y python3-venv
+            else
+                die "无法自动安装 python3-venv，请手动安装后重试。"
+            fi
+            
+            # 重新尝试创建虚拟环境
+            "$PYTHON_BIN" -m venv venv || die "安装 python3-venv 后仍无法创建虚拟环境。"
+        fi
         ok "虚拟环境创建完成: $INSTALL_DIR/venv"
     fi
 
