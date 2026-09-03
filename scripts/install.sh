@@ -242,7 +242,7 @@ acquire_source() {
         info "检测到在仓库内执行, 使用项目目录: $INSTALL_DIR"
     fi
     if [ -z "${INSTALL_DIR:-}" ]; then
-        INSTALL_DIR="$(ask "安装目录" "$HOME/hjdetect")"
+        INSTALL_DIR="$(ask "安装目录 (默认: $HOME/hjdetect)" "$HOME/hjdetect")"
     fi
     INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
     mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -407,25 +407,25 @@ configure_app() {
             if [ "$keep" = "yes" ]; then
                 api_key_value="__KEEP__"
             else
-                api_key_value="$(ask_secret "请输入 ARK API Key (输入内容不回显): ")"
+                api_key_value="$(ask_secret "请输入新的 ARK API Key (输入内容不回显): ")"
             fi
         else
-            api_key_value="$(ask_secret "请输入 ARK API Key (输入内容不回显, 可留空稍后配置): ")"
+            api_key_value="$(ask_secret "请输入 ARK API Key (输入内容不回显, 留空稍后在 .env 中配置): ")"
         fi
     fi
 
     # --- API / Web 配置 ---
     local input_url input_model input_mode input_host input_port
     input_url="${ARK_BASE_URL:-}"
-    [ -z "$input_url" ] && input_url="$(ask "ARK API Endpoint" "${existing_url:-$DEFAULT_BASE_URL}")"
+    [ -z "$input_url" ] && input_url="$(ask "ARK API Endpoint (默认: $DEFAULT_BASE_URL)" "${existing_url:-$DEFAULT_BASE_URL}")"
     input_model="${ARK_MODEL:-}"
-    [ -z "$input_model" ] && input_model="$(ask "模型名称" "${existing_model:-$DEFAULT_MODEL}")"
+    [ -z "$input_model" ] && input_model="$(ask "模型名称 (默认: $DEFAULT_MODEL)" "${existing_model:-$DEFAULT_MODEL}")"
     input_mode="${APP_MODE:-}"
-    [ -z "$input_mode" ] && input_mode="$(ask "运行模式 (online/demo)" "${existing_mode:-online}")"
+    [ -z "$input_mode" ] && input_mode="$(ask "运行模式 online/demo (默认: online)" "${existing_mode:-online}")"
     input_host="${HOST:-}"
-    [ -z "$input_host" ] && input_host="$(ask "监听地址 (0.0.0.0 为全网可访问)" "${existing_host:-$DEFAULT_HOST}")"
+    [ -z "$input_host" ] && input_host="$(ask "监听地址 (默认: $DEFAULT_HOST, 0.0.0.0 为全网可访问)" "${existing_host:-$DEFAULT_HOST}")"
     input_port="${PORT:-}"
-    [ -z "$input_port" ] && input_port="$(ask "监听端口" "${existing_port:-$DEFAULT_PORT}")"
+    [ -z "$input_port" ] && input_port="$(ask "监听端口 (默认: $DEFAULT_PORT)" "${existing_port:-$DEFAULT_PORT}")"
 
     case "$input_mode" in online|demo) ;; *) input_mode="online" ;; esac
     if ! printf '%s' "$input_port" | grep -qE '^[0-9]+$' || [ "$input_port" -lt 1 ] || [ "$input_port" -gt 65535 ]; then
@@ -489,7 +489,7 @@ configure_https() {
     fi
 
     if [ -z "${HTTPS_WANT:-}" ]; then
-        HTTPS_WANT="$(ask_yes_no "是否配置 HTTPS (需要公网域名解析到本机)?" "no")"
+        HTTPS_WANT="$(ask_yes_no "是否配置 HTTPS? (需要公网域名解析到本机, 默认: no)" "no")"
     fi
     if [ "$HTTPS_WANT" != "yes" ]; then
         upsert_env_line .env ENABLE_HTTPS "'no'"
@@ -498,7 +498,7 @@ configure_https() {
     fi
 
     if [ -z "$HJ_DOMAIN" ]; then
-        HJ_DOMAIN="$(ask "域名 (例如 detect.example.com)" "$existing_domain")"
+        HJ_DOMAIN="$(ask "域名 (例如 detect.example.com, 留空跳过 HTTPS)" "$existing_domain")"
     fi
     if [ -z "$HJ_DOMAIN" ]; then
         warn "未提供域名, 跳过 HTTPS 配置。"
@@ -506,7 +506,7 @@ configure_https() {
         return 0
     fi
     if [ -z "$HJ_EMAIL" ]; then
-        HJ_EMAIL="$(ask "证书邮箱 (Let's Encrypt 通知)" "$existing_email")"
+        HJ_EMAIL="$(ask "证书邮箱 (Let's Encrypt 通知, 留空使用域名邮箱)" "$existing_email")"
     fi
 
     # DNS 检查
@@ -565,7 +565,7 @@ configure_systemd() {
         return 0
     fi
     if [ -z "${HJ_SYSTEMD_WANT:-}" ]; then
-        HJ_SYSTEMD_WANT="$(ask_yes_no "是否注册 systemd 开机自启服务 (huangjing)?" "no")"
+        HJ_SYSTEMD_WANT="$(ask_yes_no "是否注册 systemd 开机自启服务? (默认: no)" "no")"
     fi
     if [ "$HJ_SYSTEMD_WANT" != "yes" ]; then
         info "跳过 systemd 配置。"
