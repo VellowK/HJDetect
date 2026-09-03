@@ -1,0 +1,13 @@
+#!/bin/bash
+# 智鉴黄精 CLI wrapper (Linux/macOS)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_PYTHON="$ROOT_DIR/venv/bin/python"
+
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "错误: 虚拟环境不存在，请先运行 scripts/install.sh"
+    exit 1
+fi
+
+exec "$VENV_PYTHON" "$SCRIPT_DIR/huangjing_cli.py" "$@"

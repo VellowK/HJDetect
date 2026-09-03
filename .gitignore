@@ -1,0 +1,44 @@
+# 环境变量与密钥（严禁提交）
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 日志
+logs/
+!logs/.gitkeep
+
+# 演示样本图片（本地准备，不入库）
+assets/demo_images/*.jpg
+assets/demo_images/*.jpeg
+
+# 临时上传文件
+tmp/
+temp/
+uploads/
+*.tmp
+*.temp
+streamlit_temp/
+
+# 运行时状态
+*.log
+*.pid
+.DS_Store
+Thumbs.db
