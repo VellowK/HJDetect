@@ -289,17 +289,17 @@ setup_venv() {
         if ! "$PYTHON_BIN" -m venv venv 2>/dev/null; then
             warn "venv 模块不可用，尝试自动安装 python3-venv..."
             
-            # 检测系统类型并安装 python3-venv
+            # 检测系统类型并安装 python3-venv 和 python3-pip
             if command -v apt-get >/dev/null 2>&1; then
-                info "检测到 Debian/Ubuntu 系统，安装 python3-venv..."
+                info "检测到 Debian/Ubuntu 系统，安装 python3-venv 和 python3-pip..."
                 as_root apt-get update -qq
-                as_root apt-get install -y python3-venv
+                as_root apt-get install -y python3-venv python3-pip
             elif command -v yum >/dev/null 2>&1; then
                 info "检测到 CentOS/RHEL 系统，安装 python3-venv..."
-                as_root yum install -y python3-venv
+                as_root yum install -y python3-venv python3-pip
             elif command -v dnf >/dev/null 2>&1; then
                 info "检测到 Fedora 系统，安装 python3-venv..."
-                as_root dnf install -y python3-venv
+                as_root dnf install -y python3-venv python3-pip
             else
                 die "无法自动安装 python3-venv，请手动安装后重试。"
             fi
@@ -308,6 +308,31 @@ setup_venv() {
             "$PYTHON_BIN" -m venv venv || die "安装 python3-venv 后仍无法创建虚拟环境。"
         fi
         ok "虚拟环境创建完成: $INSTALL_DIR/venv"
+    fi
+    
+    # 检查虚拟环境中是否有 pip，如果没有则手动安装
+    if ! ./venv/bin/python -m pip --version >/dev/null 2>&1; then
+        warn "虚拟环境中没有 pip，尝试修复..."
+        
+        # 方法1: 尝试用 ensurepip 安装
+        if ./venv/bin/python -m ensurepip --upgrade 2>/dev/null; then
+            ok "已通过 ensurepip 安装 pip"
+        else
+            # 方法2: 如果 ensurepip 不可用，从系统安装 pip
+            info "ensurepip 不可用，安装系统 python3-pip 包..."
+            if command -v apt-get >/dev/null 2>&1; then
+                as_root apt-get install -y python3-pip
+            elif command -v yum >/dev/null 2>&1; then
+                as_root yum install -y python3-pip
+            elif command -v dnf >/dev/null 2>&1; then
+                as_root dnf install -y python3-pip
+            fi
+            
+            # 重新创建虚拟环境（这次会包含 pip）
+            rm -rf venv
+            "$PYTHON_BIN" -m venv venv || die "重新创建虚拟环境失败"
+            ok "已重新创建包含 pip 的虚拟环境"
+        fi
     fi
 
     step "安装项目依赖"
