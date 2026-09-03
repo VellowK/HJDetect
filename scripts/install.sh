@@ -784,8 +784,8 @@ show_menu() {
 }
 
 main() {
-    # 如果是 curl | bash 方式或非交互模式，直接安装
-    if [ ! -t 0 ] || [ "${HJ_NONINTERACTIVE:-0}" = "1" ]; then
+    # 如果是非交互模式（环境变量指定），直接安装
+    if [ "${HJ_NONINTERACTIVE:-0}" = "1" ]; then
         do_install
         return
     fi
