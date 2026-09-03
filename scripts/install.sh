@@ -850,11 +850,6 @@ show_menu() {
     printf '  6) 退出\n'
     printf '\n'
 }
-    printf '  3) 更新系统\n'
-    printf '  4) 环境检查\n'
-    printf '  5) 退出\n'
-    printf '\n'
-}
 
 main() {
     # 如果是非交互模式（环境变量指定），直接安装
