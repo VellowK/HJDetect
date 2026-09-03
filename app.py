@@ -130,24 +130,22 @@ class DetectionError(Exception):
 
 # ---------------------------------------------------------------------------
 # 服务健康探测（状态指示灯）：每 20 分钟真实向 API 发一次轻量测试请求
+#
+# 关键：缓存放在【进程级】（所有浏览器会话共享），且探测在【后台线程】执行，
+# 页面渲染从不等待 API，避免打开慢。
 # ---------------------------------------------------------------------------
 
+import threading
 
-def probe_service_health(force: bool = False) -> dict:
-    """带 TTL 缓存的健康探测。
+_HEALTH_LOCK = threading.Lock()
+# 进程级缓存：{"ok", "detail", "checked_at", "_ts"}；None 表示尚未探测过
+_HEALTH_CACHE = None
+_HEALTH_PROBING = False  # 是否已有后台探测在进行，避免并发重复打 API
 
-    返回 {"ok": bool, "detail": str, "checked_at": "HH:MM:SS"}。
-    结果缓存在 session_state，20 分钟内复用，避免每次交互都打 API。
-    """
-    cache = st.session_state.get("_health_cache")
-    now = time.monotonic()
-    if (
-        not force
-        and cache is not None
-        and (now - cache.get("_ts", 0)) < HEALTH_TTL_SECONDS
-    ):
-        return cache
 
+def _run_health_probe() -> None:
+    """在后台线程执行真实探测，完成后写入进程级缓存。"""
+    global _HEALTH_CACHE, _HEALTH_PROBING
     ok, detail = False, "健康检查不可用"
     if _health_fn is not None:
         try:
@@ -162,17 +160,48 @@ def probe_service_health(force: bool = False) -> dict:
             logger.warning("健康探测异常: %r", exc)
             ok, detail = False, "探测异常"
     else:
-        # 核心组件缺失时，无法确认后端连通
         ok, detail = False, "服务未就绪"
 
-    result = {
-        "ok": ok,
-        "detail": detail,
-        "checked_at": datetime.now().strftime("%H:%M:%S"),
-        "_ts": now,
-    }
-    st.session_state["_health_cache"] = result
-    return result
+    with _HEALTH_LOCK:
+        _HEALTH_CACHE = {
+            "ok": ok,
+            "detail": detail,
+            "checked_at": datetime.now().strftime("%H:%M:%S"),
+            "_ts": time.monotonic(),
+        }
+        _HEALTH_PROBING = False
+
+
+def _start_health_probe() -> None:
+    """若无进行中的探测则启动一个后台线程，立即返回、不阻塞。"""
+    global _HEALTH_PROBING
+    with _HEALTH_LOCK:
+        if _HEALTH_PROBING:
+            return
+        _HEALTH_PROBING = True
+    t = threading.Thread(target=_run_health_probe, daemon=True)
+    t.start()
+
+
+def probe_service_health(force: bool = False) -> dict:
+    """返回进程级缓存的健康状态，永不阻塞页面渲染。
+
+    - 尚无结果：立即返回“检测中”占位，并在后台发起首次探测；
+    - 已过期(>20min)或 force：后台重新探测，本次仍先返回旧结果；
+    - 未过期：直接复用。
+    """
+    global _HEALTH_CACHE
+    now = time.monotonic()
+    with _HEALTH_LOCK:
+        cache = _HEALTH_CACHE
+
+    if cache is None:
+        _start_health_probe()
+        return {"ok": None, "detail": "检测中…", "checked_at": "", "_ts": now}
+
+    if force or (now - cache.get("_ts", 0)) >= HEALTH_TTL_SECONDS:
+        _start_health_probe()  # 后台刷新，本次先用旧值
+    return cache
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +405,7 @@ def inject_css() -> None:
         .hj-dot {{ width: 11px; height: 11px; border-radius: 50%; display: inline-block; }}
         .hj-dot-green {{ background: #22c55e; box-shadow: 0 0 8px #22c55e; animation: hj-pulse 1.8s infinite; }}
         .hj-dot-red {{ background: #ef4444; box-shadow: 0 0 8px #ef4444; }}
+        .hj-dot-amber {{ background: #f59e0b; box-shadow: 0 0 8px #f59e0b; animation: hj-pulse 1s infinite; }}
         @keyframes hj-pulse {{ 0%{{opacity:1}} 50%{{opacity:.45}} 100%{{opacity:1}} }}
 
         /* 面板标题 */
@@ -446,8 +476,11 @@ def inject_css() -> None:
 
 
 def render_header(health: dict) -> None:
-    if health.get("ok"):
+    ok = health.get("ok")
+    if ok is True:
         dot_class, label = "hj-dot-green", "服务正常运行中"
+    elif ok is None:
+        dot_class, label = "hj-dot-amber", "正在检测服务状态"
     else:
         dot_class, label = "hj-dot-red", "服务连接异常"
     detail = health.get("detail", "")
@@ -648,12 +681,17 @@ st.set_page_config(
 inject_css()
 
 # 顶部标题栏 + 真实服务状态灯
-# 应用启动（本次浏览器会话首次加载）时强制真实探测一次，之后按 20 分钟 TTL 复用
-_first_load = "_health_bootstrapped" not in st.session_state
-_health = probe_service_health(force=_first_load)
-if _first_load:
-    st.session_state["_health_bootstrapped"] = True
+# 进程级缓存 + 后台线程探测：页面渲染从不等待 API。
+# 首次进程启动会返回“检测中”占位，探测在后台完成后由下面的轻量自动刷新拉取结果。
+_health = probe_service_health()
 render_header(_health)
+
+# 若状态仍在“检测中”，2 秒后自动刷新一次以显示真实结果（无需手动刷新）
+if _health.get("ok") is None:
+    st.markdown(
+        "<script>setTimeout(function(){window.parent.location.reload();}, 2000);</script>",
+        unsafe_allow_html=True,
+    )
 
 
 def _log_lines_html() -> str:
