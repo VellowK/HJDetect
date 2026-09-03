@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # 智鉴黄精 AI 品质检测系统 - 一键安装脚本 (Linux)
-# Version: 1.0.1 (2024-03-09 语法修复版)
+# Version: 1.1.0 (2024-03-09 新增脚本自更新检测)
 #
 # 用法:
 #   一键安装 (curl | bash):
@@ -25,8 +25,12 @@
 
 set -euo pipefail
 
+# 安装脚本自身版本 (与顶部注释保持一致; 用于检测脚本更新)
+SCRIPT_VERSION="1.1.0"
+
 REPO_URL="https://github.com/VellowK/HJDetect"
 REPO_BRANCH="main"
+REPO_RAW="https://raw.githubusercontent.com/VellowK/HJDetect/main"
 DEFAULT_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
 DEFAULT_MODEL="doubao-seed-2.0-lite"
 DEFAULT_PORT="8501"
@@ -790,6 +794,55 @@ do_check() {
     fi
 }
 
+# 从远程脚本内容中解析 SCRIPT_VERSION 值
+_parse_remote_script_version() {
+    # 参数: 远程脚本文本; 输出: 版本号或空
+    printf '%s\n' "$1" \
+        | grep -E '^SCRIPT_VERSION=' \
+        | head -n1 \
+        | sed -E 's/^SCRIPT_VERSION=["'\'']?([^"'\'' ]+).*/\1/'
+}
+
+# 检测安装脚本 (install.sh) 自身是否有新版本
+check_script_update() {
+    printf '\n'
+    info "检查安装脚本 (install.sh) 更新..."
+    printf "  当前脚本版本 : %s%s%s\n" "$C_GREEN" "$SCRIPT_VERSION" "$C_RESET"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        warn "未安装 curl，无法检查脚本更新"
+        return 0
+    fi
+
+    local remote_script remote_script_version
+    remote_script="$(curl -fsSL --connect-timeout 5 "$REPO_RAW/scripts/install.sh" 2>/dev/null || true)"
+    if [ -z "$remote_script" ]; then
+        warn "无法获取远程脚本（网络问题或仓库不可达）"
+        return 0
+    fi
+
+    remote_script_version="$(_parse_remote_script_version "$remote_script")"
+    if [ -z "$remote_script_version" ]; then
+        warn "无法解析远程脚本版本"
+        return 0
+    fi
+
+    printf "  远程脚本版本 : %s%s%s\n" "$C_BLUE" "$remote_script_version" "$C_RESET"
+
+    if [ "$SCRIPT_VERSION" = "$remote_script_version" ]; then
+        ok "安装脚本已是最新版本"
+    elif version_ge "$SCRIPT_VERSION" "$remote_script_version"; then
+        ok "当前脚本版本不低于远程版本"
+    else
+        warn "发现新版安装脚本：$remote_script_version (当前: $SCRIPT_VERSION)"
+        info "更新脚本命令："
+        printf '    curl -fsSL %s/scripts/install.sh -o install.sh && bash install.sh\n' "$REPO_RAW"
+        info "或直接用一键命令重新拉取最新脚本："
+        printf '    curl -fsSL %s/scripts/install.sh | bash\n' "$REPO_RAW"
+    fi
+    return 0
+}
+
 do_version() {
     printf '%s==============================================================\n' "$C_BOLD$C_BLUE"
     printf '   智鉴黄精 AI 品质检测系统 - 版本信息\n'
@@ -801,6 +854,8 @@ do_version() {
     if [ ! -d "$install_dir" ]; then
         warn "未找到安装目录: $install_dir"
         info "系统未安装"
+        # 即使未安装，也检查安装脚本自身是否有更新
+        check_script_update
         return 0
     fi
     
@@ -853,7 +908,10 @@ do_version() {
     else
         warn "未安装 curl，无法检查远程版本"
     fi
-    
+
+    # 检查安装脚本 (install.sh) 自身更新
+    check_script_update
+
     printf '\n'
 }
 
