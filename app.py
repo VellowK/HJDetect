@@ -39,7 +39,7 @@ MAX_FILE_MB = 10
 MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 HISTORY_LIMIT = 20
 ALLOWED_TYPES = ("jpg", "jpeg", "png")
-HEALTH_TTL_SECONDS = 20 * 60  # 状态灯每 20 分钟真实探测一次
+HEALTH_INTERVAL_SECONDS = 60 * 60  # 后端每小时自动探测一次服务健康
 
 OVERALL_PASS = "合格"
 OVERALL_REVIEW = "建议人工复核"
@@ -129,10 +129,12 @@ class DetectionError(Exception):
         self.user_message = message
 
 # ---------------------------------------------------------------------------
-# 服务健康探测（状态指示灯）：每 20 分钟真实向 API 发一次轻量测试请求
+# 服务健康探测（状态指示灯）：由【后端守护线程】自主定时探测
 #
-# 关键：缓存放在【进程级】（所有浏览器会话共享），且探测在【后台线程】执行，
-# 页面渲染从不等待 API，避免打开慢。
+# 设计：
+# - 程序启动即探测一次，之后每小时自动探测一次；
+# - 结果写入进程级缓存（所有浏览器会话共享）；
+# - 前端只读缓存，从不触发探测，页面渲染永不阻塞、永不因探测变慢。
 # ---------------------------------------------------------------------------
 
 import threading
@@ -140,12 +142,11 @@ import threading
 _HEALTH_LOCK = threading.Lock()
 # 进程级缓存：{"ok", "detail", "checked_at", "_ts"}；None 表示尚未探测过
 _HEALTH_CACHE = None
-_HEALTH_PROBING = False  # 是否已有后台探测在进行，避免并发重复打 API
+_HEALTH_DAEMON_STARTED = False
 
 
-def _run_health_probe() -> None:
-    """在后台线程执行真实探测，完成后写入进程级缓存。"""
-    global _HEALTH_CACHE, _HEALTH_PROBING
+def _probe_once() -> dict:
+    """执行一次真实探测，返回结果字典（不写缓存）。"""
     ok, detail = False, "健康检查不可用"
     if _health_fn is not None:
         try:
@@ -161,46 +162,42 @@ def _run_health_probe() -> None:
             ok, detail = False, "探测异常"
     else:
         ok, detail = False, "服务未就绪"
+    return {
+        "ok": ok,
+        "detail": detail,
+        "checked_at": datetime.now().strftime("%H:%M:%S"),
+        "_ts": time.monotonic(),
+    }
 
+
+def _health_daemon_loop() -> None:
+    """后端守护线程：启动即探测一次，之后每小时探测一次。"""
+    global _HEALTH_CACHE
+    while True:
+        result = _probe_once()
+        with _HEALTH_LOCK:
+            _HEALTH_CACHE = result
+        logger.info("健康探测完成: ok=%s detail=%s", result["ok"], result["detail"])
+        time.sleep(HEALTH_INTERVAL_SECONDS)
+
+
+def ensure_health_daemon() -> None:
+    """确保后端健康探测守护线程已启动（进程内仅启动一次）。"""
+    global _HEALTH_DAEMON_STARTED
     with _HEALTH_LOCK:
-        _HEALTH_CACHE = {
-            "ok": ok,
-            "detail": detail,
-            "checked_at": datetime.now().strftime("%H:%M:%S"),
-            "_ts": time.monotonic(),
-        }
-        _HEALTH_PROBING = False
-
-
-def _start_health_probe() -> None:
-    """若无进行中的探测则启动一个后台线程，立即返回、不阻塞。"""
-    global _HEALTH_PROBING
-    with _HEALTH_LOCK:
-        if _HEALTH_PROBING:
+        if _HEALTH_DAEMON_STARTED:
             return
-        _HEALTH_PROBING = True
-    t = threading.Thread(target=_run_health_probe, daemon=True)
+        _HEALTH_DAEMON_STARTED = True
+    t = threading.Thread(target=_health_daemon_loop, daemon=True, name="hj-health")
     t.start()
 
 
-def probe_service_health(force: bool = False) -> dict:
-    """返回进程级缓存的健康状态，永不阻塞页面渲染。
-
-    - 尚无结果：立即返回“检测中”占位，并在后台发起首次探测；
-    - 已过期(>20min)或 force：后台重新探测，本次仍先返回旧结果；
-    - 未过期：直接复用。
-    """
-    global _HEALTH_CACHE
-    now = time.monotonic()
+def get_service_health() -> dict:
+    """前端只读接口：返回进程级缓存，从不触发探测。"""
     with _HEALTH_LOCK:
         cache = _HEALTH_CACHE
-
     if cache is None:
-        _start_health_probe()
-        return {"ok": None, "detail": "检测中…", "checked_at": "", "_ts": now}
-
-    if force or (now - cache.get("_ts", 0)) >= HEALTH_TTL_SECONDS:
-        _start_health_probe()  # 后台刷新，本次先用旧值
+        return {"ok": None, "detail": "检测中…", "checked_at": "", "_ts": 0}
     return cache
 
 
@@ -485,19 +482,23 @@ def inject_css() -> None:
         [data-testid="stFileUploader"] > section {{ margin-top: 0 !important; }}
 
 
-        /* 日志面板 */
+        /* 日志面板：跟随 Streamlit 主题（亮/暗）自动切换背景与文字色 */
         .hj-log {{
-            background: #0b1220; color: #7dd3fc; font-family: ui-monospace, Menlo, Consolas, monospace;
+            background: var(--secondary-background-color, #0b1220);
+            color: var(--text-color, #cbd5e1);
+            font-family: ui-monospace, Menlo, Consolas, monospace;
             font-size: 12.5px; line-height: 1.7; border-radius: 10px; padding: 12px 14px;
-            height: {PANEL_HEIGHT}px; overflow-y: auto; border: 1px solid #1e293b; white-space: pre-wrap;
+            height: {PANEL_HEIGHT}px; overflow-y: auto;
+            border: 1px solid rgba(128,128,128,0.28); white-space: pre-wrap;
         }}
         .hj-log .row {{ display: flex; align-items: baseline; gap: 6px; }}
-        .hj-log .ts {{ color: #475569; }}
+        .hj-log .ts {{ opacity: 0.55; }}
         .hj-log i {{ font-size: 13px; position: relative; top: 2px; }}
-        .hj-log .ok {{ color: #4ade80; }}
-        .hj-log .err {{ color: #f87171; }}
-        .hj-log .step {{ color: #fbbf24; }}
-        .hj-log .info {{ color: #7dd3fc; }}
+        /* 状态强调色选用 600 级，亮色/暗色背景下都清晰 */
+        .hj-log .ok {{ color: #16a34a; }}
+        .hj-log .err {{ color: #dc2626; }}
+        .hj-log .step {{ color: #d97706; }}
+        .hj-log .info {{ color: #0891b2; }}
 
         /* 综合评价卡片 */
         .hj-verdict {{
@@ -732,12 +733,12 @@ st.set_page_config(
 inject_css()
 
 # 顶部标题栏 + 真实服务状态灯
-# 进程级缓存 + 后台线程探测：页面渲染从不等待 API。
-# 首次进程启动会返回“检测中”占位，探测在后台完成后由下面的轻量自动刷新拉取结果。
-_health = probe_service_health()
+# 后端守护线程负责定时探测（启动一次 + 每小时一次）；前端只读缓存，永不阻塞。
+ensure_health_daemon()
+_health = get_service_health()
 render_header(_health)
 
-# 若状态仍在“检测中”，2 秒后自动刷新一次以显示真实结果（无需手动刷新）
+# 若刚启动、后台首次探测尚未返回，2 秒后自动刷新一次以显示真实结果
 if _health.get("ok") is None:
     st.markdown(
         "<script>setTimeout(function(){window.parent.location.reload();}, 2000);</script>",
