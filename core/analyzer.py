@@ -244,6 +244,31 @@ class DoubaoSeedModel(VisionModel):
             cause=last_error,
         )
 
+    def health_check(self):
+        """轻量连通性探测: 向模型发一个极小的文本请求, 判断 API 是否可达。
+
+        返回 (ok: bool, detail: str)。不抛异常, 供状态指示灯周期性调用。
+        仅消耗极少 token, 不涉及图片。
+        """
+        try:
+            client = self._get_client()
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "ping"}],
+                temperature=0,
+                max_tokens=1,
+            )
+            if getattr(response, "choices", None):
+                return True, "在线"
+            return False, "响应异常"
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            if status is None:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is not None:
+                return False, "API 状态码 %s" % status
+            return False, "连接失败: %s" % sanitize(str(exc))[:60]
+
 
 class DemoModel(VisionModel):
     """演示模式: 返回预设结果, 不调用真实 API。
@@ -290,32 +315,6 @@ class DemoModel(VisionModel):
         self._index += 1
         logger.info("Demo 模式: 返回预设结果 #%d", self._index)
         return result
-
-
-    def health_check(self):
-        """轻量连通性探测: 向模型发一个极小的文本请求, 判断 API 是否可达。
-
-        返回 (ok: bool, detail: str)。不抛异常, 供状态指示灯周期性调用。
-        仅消耗极少 token, 不涉及图片。
-        """
-        try:
-            client = self._get_client()
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "ping"}],
-                temperature=0,
-                max_tokens=1,
-            )
-            if getattr(response, "choices", None):
-                return True, "在线"
-            return False, "响应异常"
-        except Exception as exc:
-            status = getattr(exc, "status_code", None)
-            if status is None:
-                status = getattr(getattr(exc, "response", None), "status_code", None)
-            if status is not None:
-                return False, "API 状态码 %s" % status
-            return False, "连接失败: %s" % sanitize(str(exc))[:60]
 
 
 _model_instance = None
