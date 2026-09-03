@@ -390,13 +390,31 @@ def inject_css() -> None:
         }}
         .hj-panel-title i {{ font-size: 18px; }}
 
-        /* 左侧上传框：拉高到与右侧日志面板一致 */
+        /* 左侧上传框：拉高到与右侧日志面板一致，不破坏内部按钮布局 */
+        section[data-testid="stFileUploaderDropzone"],
         [data-testid="stFileUploaderDropzone"] {{
             min-height: {PANEL_HEIGHT}px;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            border: 1.5px dashed #0f766e; border-radius: 10px; background: #f0fdfa;
+            align-items: center;                 /* 保留 Streamlit 默认 row 布局，仅垂直居中 */
+            border: 1.5px dashed #0f766e;
+            border-radius: 10px;
+            background: #f0fdfa;
         }}
-        [data-testid="stFileUploaderDropzone"]:hover {{ background: #ccfbf1; }}
+        section[data-testid="stFileUploaderDropzone"]:hover {{ background: #e6fbf6; }}
+        /* 强制上传框内文字为深色，避免深色主题下浅色文字看不清 */
+        [data-testid="stFileUploaderDropzone"] span,
+        [data-testid="stFileUploaderDropzone"] small,
+        [data-testid="stFileUploaderDropzone"] div,
+        [data-testid="stFileUploaderDropzoneInstructions"] * {{
+            color: #134e4a !important;
+        }}
+        /* Browse files 按钮：白底深字，避免与背景同色 */
+        [data-testid="stFileUploaderDropzone"] button {{
+            color: #0f766e !important;
+            background: #ffffff !important;
+            border: 1px solid #0f766e !important;
+        }}
+        /* 左右两个主面板列顶端对齐 */
+        [data-testid="column"] {{ align-self: flex-start; }}
 
         /* 剪贴板上传长条：让粘贴组件铺满整行成为一条 */
         .hj-paste-wrap iframe {{ width: 100% !important; min-width: 100% !important; }}
