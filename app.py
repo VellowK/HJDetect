@@ -252,13 +252,14 @@ def _to_result_dict(result) -> dict:
 def run_detection(image_bytes: bytes, filename: str, log) -> dict:
     """完整检测流程：校验 -> 分析 -> 解读 -> 判定。
 
-    log 为回调 (str) -> None，用于把每一步进度写入右侧实时日志面板。
+    log 为回调 (text, kind) -> None，用于把每一步进度写入右侧实时日志面板。
+    kind 取值 step/ok/err/info。
     """
     started = datetime.now()
     logger.info("收到检测请求")
-    log("收到检测请求，开始处理…")
+    log("收到检测请求，开始处理", "info")
 
-    log("步骤 1/4 · 输入校验")
+    log("步骤 1/4 · 输入校验", "step")
     try:
         ok, message = _call_validator(image_bytes, filename)
     except Exception as exc:
@@ -266,38 +267,38 @@ def run_detection(image_bytes: bytes, filename: str, log) -> dict:
         ok, message = True, ""
     if not ok:
         logger.info("输入校验未通过")
-        log("✗ 输入校验未通过")
+        log("输入校验未通过", "err")
         raise DetectionError(message or "图片不符合检测要求，请更换图片后重试。")
-    log("✓ 校验通过")
+    log("校验通过", "ok")
 
     system_prompt = _load_system_prompt()
     if not system_prompt:
-        log("✗ 系统配置不完整")
+        log("系统配置不完整", "err")
         raise DetectionError("系统配置不完整，无法进行检测，请联系管理员。")
 
-    log("步骤 2/4 · 调用视觉模型分析（可能需要数秒）")
+    log("步骤 2/4 · 调用视觉模型分析（可能需要数秒）", "step")
     try:
         raw_text = _call_analyzer(image_bytes, system_prompt)
     except DetectionError:
-        log("✗ 模型分析失败")
+        log("模型分析失败", "err")
         raise
     except Exception as exc:
         logger.error("分析请求失败: %r", exc)
-        log("✗ 模型分析异常")
+        log("模型分析异常", "err")
         raise DetectionError("检测服务暂时不可用，请稍后再试。") from exc
-    log("✓ 模型返回原始结果")
+    log("模型返回原始结果", "ok")
 
-    log("步骤 3/4 · 解析模型输出")
+    log("步骤 3/4 · 解析模型输出", "step")
     parsed = _call_parser(raw_text)
-    log("✓ 结果解析完成")
+    log("结果解析完成", "ok")
 
-    log("步骤 4/4 · 综合品质判定")
+    log("步骤 4/4 · 综合品质判定", "step")
     final_result = _to_result_dict(_call_evaluator(parsed))
-    log("✓ 判定完成")
+    log("判定完成", "ok")
 
     elapsed = (datetime.now() - started).total_seconds()
     logger.info("检测完成，耗时 %.2f 秒", elapsed)
-    log(f"检测完成，总耗时 {elapsed:.2f} 秒")
+    log(f"检测完成，总耗时 {elapsed:.2f} 秒", "ok")
     return final_result
 
 # ---------------------------------------------------------------------------
@@ -315,19 +316,25 @@ except Exception:  # pragma: no cover
     _LocalStorage = None
 
 
+# 综合评价 -> (Remix Icon 类名, Streamlit box 类型, 主色, 浅背景)
 OVERALL_BADGE = {
-    OVERALL_PASS: ("✅", "success"),
-    OVERALL_REVIEW: ("⚠️", "warning"),
-    OVERALL_REJECT: ("🚫", "error"),
-    OVERALL_INVALID: ("ℹ️", "info"),
+    OVERALL_PASS: ("ri-checkbox-circle-fill", "success", "#16a34a", "#dcfce7"),
+    OVERALL_REVIEW: ("ri-error-warning-fill", "warning", "#d97706", "#fef3c7"),
+    OVERALL_REJECT: ("ri-close-circle-fill", "error", "#dc2626", "#fee2e2"),
+    OVERALL_INVALID: ("ri-information-fill", "info", "#64748b", "#f1f5f9"),
 }
 
-OVERALL_COLOR = {
-    OVERALL_PASS: "#16a34a",
-    OVERALL_REVIEW: "#d97706",
-    OVERALL_REJECT: "#dc2626",
-    OVERALL_INVALID: "#64748b",
-}
+
+def _overall_meta(overall: str):
+    return OVERALL_BADGE.get(overall, OVERALL_BADGE[OVERALL_INVALID])
+
+
+def _overall_tag_html(overall: str) -> str:
+    icon, _, color, _ = _overall_meta(overall)
+    return (
+        f'<span class="hj-tag" style="color:{color}">'
+        f'<i class="{icon}"></i>{overall}</span>'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -335,40 +342,92 @@ OVERALL_COLOR = {
 # ---------------------------------------------------------------------------
 
 
+PANEL_HEIGHT = 360  # 左侧上传框与右侧日志面板统一高度
+
+
 def inject_css() -> None:
+    # Remix Icon 图标库（远程 CDN；无网络时图标不显示，不影响功能）
     st.markdown(
-        """
+        '<link rel="stylesheet" '
+        'href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css">',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
         <style>
-        .block-container { padding-top: 1.2rem; max-width: 1200px; }
+        /* 顶部 Streamlit 工具条透明化并让出空间，避免遮挡标题栏 */
+        header[data-testid="stHeader"] {{ background: transparent; }}
+        .block-container {{ padding-top: 3.4rem; max-width: 1200px; }}
+
         /* 顶部标题栏 */
-        .hj-header {
+        .hj-header {{
             display: flex; align-items: center; justify-content: space-between;
-            padding: 16px 22px; border-radius: 14px; margin-bottom: 18px;
+            padding: 18px 24px; border-radius: 14px; margin: 6px 0 18px;
             background: linear-gradient(120deg, #0f2f24 0%, #16352a 60%, #1c4536 100%);
             border: 1px solid #23543f;
-        }
-        .hj-title { font-size: 22px; font-weight: 700; color: #ecfdf5; margin: 0; }
-        .hj-subtitle { font-size: 13px; color: #a7d3bf; margin-top: 3px; }
-        .hj-status {
+        }}
+        .hj-title {{
+            font-size: 22px; font-weight: 700; color: #ecfdf5; margin: 0;
+            display: flex; align-items: center; gap: 10px;
+        }}
+        .hj-title i {{ font-size: 24px; color: #6ee7b7; }}
+        .hj-subtitle {{ font-size: 13px; color: #a7d3bf; margin-top: 4px; }}
+        .hj-status {{
             display: flex; align-items: center; gap: 8px;
             font-size: 13px; color: #d1fae5; background: rgba(0,0,0,0.25);
             padding: 8px 14px; border-radius: 999px; border: 1px solid #2f6b50;
-        }
-        .hj-dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-        .hj-dot-green { background: #22c55e; box-shadow: 0 0 8px #22c55e; animation: hj-pulse 1.8s infinite; }
-        .hj-dot-red { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
-        @keyframes hj-pulse { 0%{opacity:1} 50%{opacity:.45} 100%{opacity:1} }
+            white-space: nowrap;
+        }}
+        .hj-dot {{ width: 11px; height: 11px; border-radius: 50%; display: inline-block; }}
+        .hj-dot-green {{ background: #22c55e; box-shadow: 0 0 8px #22c55e; animation: hj-pulse 1.8s infinite; }}
+        .hj-dot-red {{ background: #ef4444; box-shadow: 0 0 8px #ef4444; }}
+        @keyframes hj-pulse {{ 0%{{opacity:1}} 50%{{opacity:.45}} 100%{{opacity:1}} }}
+
         /* 面板标题 */
-        .hj-panel-title { font-size: 15px; font-weight: 700; color: #0f766e; margin: 2px 0 10px; }
+        .hj-panel-title {{
+            font-size: 15px; font-weight: 700; color: #0f766e; margin: 2px 0 10px;
+            display: flex; align-items: center; gap: 7px;
+        }}
+        .hj-panel-title i {{ font-size: 18px; }}
+
+        /* 左侧上传框：拉高到与右侧日志面板一致 */
+        [data-testid="stFileUploaderDropzone"] {{
+            min-height: {PANEL_HEIGHT}px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border: 1.5px dashed #0f766e; border-radius: 10px; background: #f0fdfa;
+        }}
+        [data-testid="stFileUploaderDropzone"]:hover {{ background: #ccfbf1; }}
+
+        /* 剪贴板上传长条：让粘贴组件铺满整行成为一条 */
+        .hj-paste-wrap iframe {{ width: 100% !important; min-width: 100% !important; }}
+        .hj-paste-hint {{
+            display: flex; align-items: center; gap: 6px; justify-content: center;
+            font-size: 12px; color: #64748b; margin: 4px 0 2px;
+        }}
+
         /* 日志面板 */
-        .hj-log {
+        .hj-log {{
             background: #0b1220; color: #7dd3fc; font-family: ui-monospace, Menlo, Consolas, monospace;
             font-size: 12.5px; line-height: 1.7; border-radius: 10px; padding: 12px 14px;
-            height: 340px; overflow-y: auto; border: 1px solid #1e293b; white-space: pre-wrap;
-        }
-        .hj-log .ok { color: #4ade80; }
-        .hj-log .err { color: #f87171; }
-        .hj-log .step { color: #fbbf24; }
+            height: {PANEL_HEIGHT}px; overflow-y: auto; border: 1px solid #1e293b; white-space: pre-wrap;
+        }}
+        .hj-log .row {{ display: flex; align-items: baseline; gap: 6px; }}
+        .hj-log .ts {{ color: #475569; }}
+        .hj-log i {{ font-size: 13px; position: relative; top: 2px; }}
+        .hj-log .ok {{ color: #4ade80; }}
+        .hj-log .err {{ color: #f87171; }}
+        .hj-log .step {{ color: #fbbf24; }}
+        .hj-log .info {{ color: #7dd3fc; }}
+
+        /* 综合评价卡片 */
+        .hj-verdict {{
+            display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700;
+            padding: 14px 18px; border-radius: 10px; margin: 6px 0;
+        }}
+        .hj-verdict i {{ font-size: 22px; }}
+        /* 历史/报告内的评价标记 */
+        .hj-tag {{ display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }}
+        .hj-tag i {{ font-size: 16px; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -386,7 +445,7 @@ def render_header(health: dict) -> None:
         f"""
         <div class="hj-header">
           <div>
-            <p class="hj-title">🌿 智鉴黄精 · AI 品质检测系统</p>
+            <p class="hj-title"><i class="ri-leaf-fill"></i>智鉴黄精 · AI 品质检测系统</p>
             <p class="hj-subtitle">九蒸九晒黄精成品外观品质辅助评价 · 根茎完整度 / 色泽均匀度 / 霉变风险</p>
           </div>
           <div class="hj-status">
@@ -491,7 +550,10 @@ def append_history(result: dict, thumb_b64: str, result_id: str) -> None:
 
 def render_history() -> None:
     history = load_history()
-    st.markdown('<div class="hj-panel-title">最近检测记录</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hj-panel-title"><i class="ri-history-line"></i>最近检测记录</div>',
+        unsafe_allow_html=True,
+    )
     if not history:
         st.caption("暂无检测记录（记录已保存在你的浏览器本地，刷新不会丢失）")
         return
@@ -516,10 +578,9 @@ def render_history() -> None:
         row[3].write(item.get("color_uniformity") or "—")
         row[4].write(item.get("mold_risk") or "—")
         overall = item.get("overall") or OVERALL_INVALID
-        badge, _ = OVERALL_BADGE.get(overall, ("ℹ️", "info"))
-        row[5].write(f"{badge} {overall}")
+        row[5].markdown(_overall_tag_html(overall), unsafe_allow_html=True)
 
-    if st.button("🗑️ 清空检测记录", key="clear_history"):
+    if st.button("清空检测记录", key="clear_history"):
         save_history([])
         st.rerun()
 
@@ -530,7 +591,10 @@ def render_history() -> None:
 
 
 def render_result(result: dict) -> None:
-    st.markdown('<div class="hj-panel-title">检测报告</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hj-panel-title"><i class="ri-file-list-3-line"></i>检测报告</div>',
+        unsafe_allow_html=True,
+    )
 
     sample_valid = result.get("sample_valid", True)
     completeness = result.get("completeness")
@@ -546,9 +610,12 @@ def render_result(result: dict) -> None:
     c2.metric("色泽均匀度", color_uniformity or OVERALL_INVALID)
     c3.metric("霉变风险", mold_risk or OVERALL_INVALID)
 
-    badge, kind = OVERALL_BADGE.get(overall, ("ℹ️", "info"))
-    box = {"success": st.success, "warning": st.warning, "error": st.error, "info": st.info}[kind]
-    box(f"综合评价：{overall} {badge}")
+    icon, _, color, bg = _overall_meta(overall)
+    st.markdown(
+        f'<div class="hj-verdict" style="color:{color};background:{bg}">'
+        f'<i class="{icon}"></i>综合评价：{overall}</div>',
+        unsafe_allow_html=True,
+    )
 
     reason = (result.get("reason") or "").strip()
     anomaly = (result.get("anomaly_description") or "").strip()
@@ -563,7 +630,9 @@ def render_result(result: dict) -> None:
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="智鉴黄精 - AI品质检测系统", page_icon="🌿", layout="wide"
+    page_title="智鉴黄精 - AI品质检测系统",
+    page_icon="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/icons/Others/leaf-fill.svg",
+    layout="wide",
 )
 inject_css()
 
@@ -575,23 +644,31 @@ render_header(_health)
 def _log_lines_html() -> str:
     lines = st.session_state.get("log_lines", [])
     if not lines:
-        return '<span style="opacity:.5">等待检测任务…\n上传图片后点击「开始检测」，这里会实时显示进度。</span>'
+        return (
+            '<span style="opacity:.5">等待检测任务…<br>'
+            '上传图片后点击「开始检测」，这里会实时显示进度。</span>'
+        )
     out = []
-    for ln in lines:
-        cls = ""
-        if ln.startswith(("✓", "检测完成")):
-            cls = "ok"
-        elif ln.startswith("✗"):
-            cls = "err"
-        elif ln.startswith("步骤"):
-            cls = "step"
-        out.append(f'<span class="{cls}">{ln}</span>')
-    return "\n".join(out)
+    for ts, kind, text in lines:
+        icon_map = {
+            "ok": "ri-check-line",
+            "err": "ri-close-line",
+            "step": "ri-arrow-right-line",
+            "info": "ri-loader-4-line",
+        }
+        cls = kind if kind in icon_map else "info"
+        icon = icon_map[cls]
+        out.append(
+            f'<div class="row"><span class="ts">[{ts}]</span>'
+            f'<span class="{cls}"><i class="{icon}"></i> {text}</span></div>'
+        )
+    return "".join(out)
 
 
-def _push_log(line: str) -> None:
+def _push_log(text: str, kind: str = "info") -> None:
+    """记录一条日志行：(时间, 级别, 文本)。级别 ok/err/step/info。"""
     ts = datetime.now().strftime("%H:%M:%S")
-    st.session_state.setdefault("log_lines", []).append(f"[{ts}] {line}")
+    st.session_state.setdefault("log_lines", []).append((ts, kind, text))
 
 
 def _reset_current() -> None:
@@ -603,46 +680,14 @@ def _reset_current() -> None:
 left, right = st.columns([1, 1], gap="large")
 
 with left:
-    st.markdown('<div class="hj-panel-title">图片上传</div>', unsafe_allow_html=True)
-
-    uploaded = st.file_uploader(
-        "拖拽图片到此处，或点击选择（也可在下方按钮直接粘贴剪贴板图片）",
-        type=list(ALLOWED_TYPES),
-        help=f"支持 {'/'.join(ALLOWED_TYPES).upper()}，单张 ≤ {MAX_FILE_MB} MB；"
-        "建议浅色干净背景、主体清晰，短边不低于 720 像素。",
-        key="uploader",
+    st.markdown(
+        '<div class="hj-panel-title"><i class="ri-upload-cloud-2-line"></i>图片上传</div>',
+        unsafe_allow_html=True,
     )
 
-    # Ctrl+V 粘贴上传（组件可用时）
-    if _paste_button is not None:
-        pasted = _paste_button(
-            label="📋 粘贴剪贴板图片 (Ctrl+V 后点此)",
-            text_color="#ffffff",
-            background_color="#0f766e",
-            hover_background_color="#0d5f5a",
-        )
-        if getattr(pasted, "image_data", None) is not None:
-            try:
-                buf = io.BytesIO()
-                pasted.image_data.save(buf, format="PNG")
-                st.session_state["current_image"] = buf.getvalue()
-                st.session_state["current_name"] = "pasted.png"
-            except Exception as exc:
-                logger.warning("粘贴图片处理失败: %r", exc)
-                st.warning("剪贴板图片无法读取，请改用拖拽或选择文件。")
-    else:
-        st.caption("提示：安装 streamlit-paste-button 组件后可启用剪贴板粘贴上传。")
-
-    # 文件上传优先覆盖当前图片
-    if uploaded is not None:
-        data = uploaded.getvalue()
-        if len(data) > MAX_FILE_BYTES:
-            st.error(f"图片超过 {MAX_FILE_MB} MB，请压缩后重新上传。")
-        else:
-            st.session_state["current_image"] = data
-            st.session_state["current_name"] = uploaded.name
-
     current_image = st.session_state.get("current_image")
+
+    # 已有图片时显示预览；否则显示加高的拖拽上传框
     if current_image:
         try:
             st.image(current_image, caption="待检测图片预览", use_container_width=True)
@@ -650,21 +695,67 @@ with left:
             st.error("图片无法正常读取，请更换图片后重试。")
             st.session_state.pop("current_image", None)
             current_image = None
+    else:
+        uploaded = st.file_uploader(
+            "拖拽图片到此处，或点击选择文件",
+            type=list(ALLOWED_TYPES),
+            help=f"支持 {'/'.join(ALLOWED_TYPES).upper()}，单张 ≤ {MAX_FILE_MB} MB；"
+            "建议浅色干净背景、主体清晰，短边不低于 720 像素。",
+            key="uploader",
+        )
+        if uploaded is not None:
+            data = uploaded.getvalue()
+            if len(data) > MAX_FILE_BYTES:
+                st.error(f"图片超过 {MAX_FILE_MB} MB，请压缩后重新上传。")
+            else:
+                st.session_state["current_image"] = data
+                st.session_state["current_name"] = uploaded.name
+                st.rerun()
 
-    # 三个操作按钮
+    # 剪贴板上传长条（整行铺满；组件缺失时降级为提示条）
+    if _paste_button is not None:
+        st.markdown('<div class="hj-paste-wrap">', unsafe_allow_html=True)
+        pasted = _paste_button(
+            label="从剪贴板上传图片（先 Ctrl+V 复制，再点这里）",
+            text_color="#ffffff",
+            background_color="#0f766e",
+            hover_background_color="#0d5f5a",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+        if getattr(pasted, "image_data", None) is not None:
+            try:
+                buf = io.BytesIO()
+                pasted.image_data.save(buf, format="PNG")
+                st.session_state["current_image"] = buf.getvalue()
+                st.session_state["current_name"] = "pasted.png"
+                st.rerun()
+            except Exception as exc:
+                logger.warning("粘贴图片处理失败: %r", exc)
+                st.warning("剪贴板图片无法读取，请改用拖拽或选择文件。")
+    else:
+        st.markdown(
+            '<div class="hj-paste-hint"><i class="ri-clipboard-line"></i>'
+            "安装 streamlit-paste-button 组件后可启用剪贴板上传</div>",
+            unsafe_allow_html=True,
+        )
+
+    # 三个操作按钮（Remix Icon，无 emoji）
     b1, b2, b3 = st.columns(3)
     do_detect = b1.button(
-        "🔍 开始检测", type="primary", use_container_width=True, disabled=not current_image
+        "开始检测", type="primary", use_container_width=True, disabled=not current_image
     )
-    do_reupload = b2.button("🔄 重新上传", use_container_width=True)
-    do_clear = b3.button("🧹 清空", use_container_width=True)
+    do_reupload = b2.button("重新上传", use_container_width=True)
+    do_clear = b3.button("清空", use_container_width=True)
 
     if do_reupload or do_clear:
         _reset_current()
         st.rerun()
 
 with right:
-    st.markdown('<div class="hj-panel-title">实时检测日志</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hj-panel-title"><i class="ri-terminal-box-line"></i>实时检测日志</div>',
+        unsafe_allow_html=True,
+    )
     log_placeholder = st.empty()
     log_placeholder.markdown(
         f'<div class="hj-log">{_log_lines_html()}</div>', unsafe_allow_html=True
@@ -674,8 +765,8 @@ with right:
 if do_detect and current_image:
     st.session_state["log_lines"] = []
 
-    def _live_log(line: str) -> None:
-        _push_log(line)
+    def _live_log(text: str, kind: str = "info") -> None:
+        _push_log(text, kind)
         log_placeholder.markdown(
             f'<div class="hj-log">{_log_lines_html()}</div>', unsafe_allow_html=True
         )
@@ -691,11 +782,11 @@ if do_detect and current_image:
         # 一次性写入历史（去重），随后 rerun 让 localStorage 组件同步
         append_history(result, st.session_state["last_thumb"], result_id)
     except DetectionError as exc:
-        _live_log(f"✗ {exc.user_message}")
+        _live_log(exc.user_message, "err")
         st.error(exc.user_message)
     except Exception:
         logger.exception("检测流程出现未预期错误")
-        _live_log("✗ 未预期错误")
+        _live_log("未预期错误", "err")
         st.error("检测过程中出现问题，请重新尝试；若多次失败请联系管理员。")
 
 st.divider()
