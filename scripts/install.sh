@@ -319,19 +319,28 @@ setup_venv() {
         if ./venv/bin/python -m ensurepip --upgrade 2>/dev/null; then
             ok "已通过 ensurepip 安装 pip"
         else
-            # 方法2: 如果 ensurepip 不可用，从系统安装 pip
-            info "ensurepip 不可用，安装系统 python3-pip 包..."
+            # 方法2: ensurepip 不可用，说明 python3-venv 包不完整
+            info "ensurepip 不可用，安装完整的 python3-venv 和 python3-pip 包..."
+            
+            # 检测系统类型并安装必要的包
             if command -v apt-get >/dev/null 2>&1; then
-                as_root apt-get install -y python3-pip
+                info "检测到 Debian/Ubuntu 系统"
+                as_root apt-get update -qq
+                # 安装对应 Python 版本的 venv 包
+                local py_version=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+                as_root apt-get install -y "python${py_version}-venv" python3-pip
             elif command -v yum >/dev/null 2>&1; then
-                as_root yum install -y python3-pip
+                as_root yum install -y python3-venv python3-pip
             elif command -v dnf >/dev/null 2>&1; then
-                as_root dnf install -y python3-pip
+                as_root dnf install -y python3-venv python3-pip
+            else
+                die "无法自动安装 python3-venv，请手动运行: apt install python3-venv"
             fi
             
-            # 重新创建虚拟环境（这次会包含 pip）
+            # 删除损坏的虚拟环境，重新创建（这次会包含 pip）
+            info "重新创建虚拟环境..."
             rm -rf venv
-            "$PYTHON_BIN" -m venv venv || die "重新创建虚拟环境失败"
+            "$PYTHON_BIN" -m venv venv || die "重新创建虚拟环境失败，请检查 python3-venv 是否正确安装"
             ok "已重新创建包含 pip 的虚拟环境"
         fi
     fi
