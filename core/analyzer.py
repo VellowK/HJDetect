@@ -252,7 +252,9 @@ class DoubaoSeedModel(VisionModel):
         """
         try:
             client = self._get_client()
-            response = client.chat.completions.create(
+            # 健康探测用短超时(6s), 避免阻塞页面加载; 与检测请求的 30s 超时区分
+            probe_client = client.with_options(timeout=6.0) if hasattr(client, "with_options") else client
+            response = probe_client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "ping"}],
                 temperature=0,

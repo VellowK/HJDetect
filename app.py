@@ -415,9 +415,26 @@ def inject_css() -> None:
         }}
         /* 左右两个主面板列顶端对齐 */
         [data-testid="column"] {{ align-self: flex-start; }}
+        /* 去掉上传控件外层默认间距, 让上传框紧贴面板标题, 与右侧日志框起点一致 */
+        [data-testid="stFileUploader"] {{ margin-top: 0 !important; }}
+        [data-testid="stFileUploader"] > label {{ display: none !important; }}
+        [data-testid="stFileUploader"] > section {{ margin-top: 0 !important; }}
 
-        /* 剪贴板上传长条：让粘贴组件铺满整行成为一条 */
+        /* 剪贴板上传长条：让粘贴组件铺满整行成为一条，并统一主题色 */
         .hj-paste-wrap iframe {{ width: 100% !important; min-width: 100% !important; }}
+        /* 覆盖粘贴组件在暗色模式下的白色底色（组件按钮渲染在其容器内） */
+        .hj-paste-wrap [data-testid="stButton"] button,
+        .hj-paste-wrap button {{
+            width: 100% !important;
+            background: #0f766e !important;
+            color: #ffffff !important;
+            border: 1px solid #0f766e !important;
+        }}
+        .hj-paste-wrap [data-testid="stButton"] button:hover,
+        .hj-paste-wrap button:hover {{
+            background: #0d5f5a !important;
+            border-color: #0d5f5a !important;
+        }}
         .hj-paste-hint {{
             display: flex; align-items: center; gap: 6px; justify-content: center;
             font-size: 12px; color: #64748b; margin: 4px 0 2px;
@@ -724,6 +741,7 @@ with left:
             help=f"支持 {'/'.join(ALLOWED_TYPES).upper()}，单张 ≤ {MAX_FILE_MB} MB；"
             "建议浅色干净背景、主体清晰，短边不低于 720 像素。",
             key="uploader",
+            label_visibility="collapsed",
         )
         if uploaded is not None:
             data = uploaded.getvalue()
@@ -738,7 +756,7 @@ with left:
     if _paste_button is not None:
         st.markdown('<div class="hj-paste-wrap">', unsafe_allow_html=True)
         pasted = _paste_button(
-            label="从剪贴板上传图片（先 Ctrl+V 复制，再点这里）",
+            label="从剪贴板上传图片",
             text_color="#ffffff",
             background_color="#0f766e",
             hover_background_color="#0d5f5a",
