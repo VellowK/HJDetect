@@ -368,13 +368,52 @@ def _overall_tag_html(overall: str) -> str:
 
 PANEL_HEIGHT = 360  # 左侧上传框与右侧日志面板统一高度
 
+# 页面用到的 Remix Icon（class 名 -> 本地 SVG 文件名，位于 assets/icons/）
+_ICON_FILES = {
+    "ri-checkbox-circle-fill": "checkbox-circle-fill",
+    "ri-error-warning-fill": "error-warning-fill",
+    "ri-close-circle-fill": "close-circle-fill",
+    "ri-information-fill": "information-fill",
+    "ri-leaf-fill": "leaf-fill",
+    "ri-history-line": "history-line",
+    "ri-file-list-3-line": "file-list-3-line",
+    "ri-check-line": "check-line",
+    "ri-close-line": "close-line",
+    "ri-arrow-right-line": "arrow-right-line",
+    "ri-loader-4-line": "loader-4-line",
+    "ri-upload-cloud-2-line": "upload-cloud-2-line",
+    "ri-terminal-box-line": "terminal-box-line",
+}
+
+
+def _build_local_icon_css() -> str:
+    """把本地 SVG 以 CSS mask 内联，图标继承文字色(currentColor)，零外网依赖。"""
+    icon_dir = BASE_DIR / "assets" / "icons"
+    rules = [
+        # 基础样式：让 <i class="ri-xxx"> 表现得像图标字体
+        "i[class^='ri-'],i[class*=' ri-']{"
+        "display:inline-block;width:1em;height:1em;vertical-align:-0.125em;"
+        "background-color:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;"
+        "-webkit-mask-position:center;mask-position:center;"
+        "-webkit-mask-size:contain;mask-size:contain;}"
+    ]
+    for cls, fname in _ICON_FILES.items():
+        try:
+            svg = (icon_dir / f"{fname}.svg").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        url = f"url('data:image/svg+xml;base64,{b64}')"
+        rules.append(
+            f".{cls}{{-webkit-mask-image:{url};mask-image:{url};}}"
+        )
+    return "\n".join(rules)
+
 
 def inject_css() -> None:
-    # Remix Icon 图标库（远程 CDN；无网络时图标不显示，不影响功能）
+    # Remix Icon 本地化：读取 assets/icons/*.svg 内联为 CSS mask，不依赖外网 CDN
     st.markdown(
-        '<link rel="stylesheet" '
-        'href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css">',
-        unsafe_allow_html=True,
+        f"<style>{_build_local_icon_css()}</style>", unsafe_allow_html=True
     )
     st.markdown(
         f"""
@@ -673,9 +712,21 @@ def render_result(result: dict) -> None:
 # 页面主体
 # ---------------------------------------------------------------------------
 
+def _favicon():
+    """用本地 leaf SVG 作为 favicon（data URI），无外网依赖；失败则回退。"""
+    try:
+        svg = (BASE_DIR / "assets" / "icons" / "leaf-fill.svg").read_text(encoding="utf-8")
+        # 给填充一个绿色，避免默认黑色
+        svg = svg.replace('fill="currentColor"', 'fill="#0f766e"')
+        b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        return f"data:image/svg+xml;base64,{b64}"
+    except Exception:
+        return "🌿"
+
+
 st.set_page_config(
     page_title="智鉴黄精 - AI品质检测系统",
-    page_icon="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/icons/Others/leaf-fill.svg",
+    page_icon=_favicon(),
     layout="wide",
 )
 inject_css()
