@@ -292,7 +292,52 @@ class DemoModel(VisionModel):
         return result
 
 
+    def health_check(self):
+        """轻量连通性探测: 向模型发一个极小的文本请求, 判断 API 是否可达。
+
+        返回 (ok: bool, detail: str)。不抛异常, 供状态指示灯周期性调用。
+        仅消耗极少 token, 不涉及图片。
+        """
+        try:
+            client = self._get_client()
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "ping"}],
+                temperature=0,
+                max_tokens=1,
+            )
+            if getattr(response, "choices", None):
+                return True, "在线"
+            return False, "响应异常"
+        except Exception as exc:
+            status = getattr(exc, "status_code", None)
+            if status is None:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is not None:
+                return False, "API 状态码 %s" % status
+            return False, "连接失败: %s" % sanitize(str(exc))[:60]
+
+
 _model_instance = None
+
+
+def health_check():
+    """模块级健康探测入口, 供 UI 状态指示灯调用。
+
+    - online 模式: 真实探测 ARK API 连通性
+    - demo 模式: 视为始终在线
+    返回 (ok: bool, detail: str)。
+    """
+    try:
+        model = _get_model()
+    except Exception as exc:
+        return False, "配置错误: %s" % sanitize(str(exc))[:60]
+    if isinstance(model, DemoModel):
+        return True, "演示模式"
+    checker = getattr(model, "health_check", None)
+    if callable(checker):
+        return checker()
+    return False, "不支持健康检查"
 
 
 def _get_model():
